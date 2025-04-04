@@ -7,6 +7,7 @@ import moment from 'moment'
 import fs from 'fs'
 import path from 'path'
 import cron from 'node-cron'
+import xlsx from 'xlsx'
 
 // Bot tokenini environment variable orqali olish
 const token = process.env.TELEGRAM_BOT_TOKEN
@@ -64,7 +65,7 @@ bot.onText(/\/start/, (msg) => {
   bot.sendMessage(chatId, "Assalomu alaykum! Ma'lumotlarni olish uchun /malumot buyrug'ini yuboring.")
 })
 
-// /malumot buyrug'ini boshqarish: ma'lumotlarni olish, Excel faylini yuklab hujjat sifatida jo'natish va sayt holatini tekshirish
+// /malumot buyrug'ini boshqarish: ma'lumotlarni olish, Excel faylini yaratish va yuborish
 bot.onText(/\/malumot/, async (msg) => {
   const chatId = msg.chat.id
   const isGroup = msg.chat.type === "group" || msg.chat.type === "supergroup"
@@ -82,8 +83,15 @@ bot.onText(/\/malumot/, async (msg) => {
 
     // Excel fayl nomini vaqt bilan shakllantirish
     const excelFileName = `users_${moment().format("DDMMYYYY_HHmmss")}.xlsx`
-    // Excel fayl URL'si (backend doimiy users.xlsx yuborsa)
-    const excelDownloadUrl = `${backendUrl}/uploads/users.xlsx`
+    
+    // Foydalanuvchilarni Excel faylga yozish
+    const wb = xlsx.utils.book_new()
+    const ws = xlsx.utils.json_to_sheet(users)
+    xlsx.utils.book_append_sheet(wb, ws, "Users")
+    
+    // Excel faylini saqlash
+    const tempFilePath = path.join(process.cwd(), excelFileName)
+    xlsx.writeFile(wb, tempFilePath)
 
     // Xabar matnini yaratish
     let messageText = `📊 *Ma'lumotlar* (${currentTime})\n\n`
@@ -107,35 +115,20 @@ bot.onText(/\/malumot/, async (msg) => {
     )
     messageText += `📡 *Sayt holati:*\n` + websiteStatuses.join("\n")
 
-    // Excel faylini yuklab olish uchun vaqtinchalik fayl yo'lini belgilaymiz
-    const tempFilePath = path.join(process.cwd(), excelFileName)
-    const fileResponse = await axios.get(excelDownloadUrl, { responseType: 'stream' })
-    const writer = fs.createWriteStream(tempFilePath)
-    await new Promise((resolve, reject) => {
-      fileResponse.data.pipe(writer)
-      let error = null
-      writer.on('error', err => {
-        error = err
-        writer.close()
-        reject(err)
-      })
-      writer.on('close', () => {
-        if (!error) {
-          resolve()
-        }
-      })
-    })
-
     // Loading xabarini o'chirish
     await bot.deleteMessage(chatId, loadingMessage.message_id)
+
     // Ma'lumot matnini yuborish
     await bot.sendMessage(chatId, messageText, { parse_mode: "Markdown" })
+
     // Excel faylini hujjat sifatida yuborish
     await bot.sendDocument(chatId, tempFilePath)
+
     // Vaqtinchalik faylni o'chirish
     fs.unlink(tempFilePath, (err) => {
       if (err) console.error("Temporary file removal error:", err)
     })
+
   } catch (error) {
     console.error("Error:", error)
     bot.sendMessage(chatId, "Xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko'ring.")
